@@ -1,0 +1,199 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Vision Demo</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='main.css') }}"
+    />
+
+  </head>
+  <body>
+    <div class="header">
+      <img
+        src="{{ url_for('static', filename='icon.png') }}"
+        alt="OpenAI Logo"
+      />
+      <div class="demo-text">Vision Demo</div>
+    </div>
+    <div class="chat-container">
+      {% for message in chat_history %}
+      <div class="message-role {{ 'user' if message.role == 'user' else '' }}">
+        {{ message.role.capitalize() }}
+      </div>
+      <div
+        class="{{ 'user-message' if message.role == 'user' else 'assistant-message' }}"
+      >
+        {{ message.content }}
+      </div>
+      {% endfor %}
+    </div>
+    <div class="message-input-container">
+      <form action="/chat" method="post">
+        <textarea
+          name="message"
+          placeholder="Type your message here..."
+          required
+        ></textarea>
+        <div class="button-group">
+          <button type="submit" id="send-btn">&#x2191;</button>
+        </div>
+      </form>
+      <div class="image-upload-container">
+        <input type="file" id="image-upload" multiple accept="image/*">
+      </div>
+      <div id="image-preview"></div>
+    </div>
+    <script>
+      let selectedImages = [];
+
+      document.getElementById('image-upload').addEventListener('change', function(e) {
+        const previewDiv = document.getElementById('image-preview');
+        previewDiv.innerHTML = '';
+        selectedImages = [];
+
+        for (let file of e.target.files) {
+          const reader = new FileReader();
+          reader.onload = function(e) {
+            // Create preview
+            const img = document.createElement('img');
+            img.src = e.target.result;
+            img.className = 'preview-image';
+            previewDiv.appendChild(img);
+
+            // Store base64 string
+            selectedImages.push(e.target.result.split(',')[1]);
+          };
+          reader.readAsDataURL(file);
+        }
+      });
+
+      document
+        .querySelector("form")
+        .addEventListener("submit", function (event) {
+          event.preventDefault();
+          const messageInput = document.querySelector(
+            'textarea[name="message"]'
+          );
+          const message = messageInput.value.trim();
+          const chatContainer = document.querySelector(".chat-container");
+
+          // Append the user's message to the chat container
+          if (message || selectedImages.length > 0) {
+            const roleDiv = document.createElement("div");
+            roleDiv.classList.add("message-role");
+            roleDiv.classList.add("user");
+            roleDiv.textContent = "User";
+            chatContainer.appendChild(roleDiv);
+
+            const userMessageDiv = document.createElement("div");
+            userMessageDiv.classList.add("user-message");
+            
+            // Add text message
+            if (message) {
+              userMessageDiv.textContent = message;
+            }
+            
+            // Add image previews to the message
+            if (selectedImages.length > 0) {
+              const imageContainer = document.createElement("div");
+              imageContainer.style.display = "flex";
+              imageContainer.style.flexWrap = "wrap";
+              imageContainer.style.gap = "10px";
+              imageContainer.style.marginTop = "10px";
+              
+              selectedImages.forEach(base64String => {
+                const img = document.createElement("img");
+                img.src = `data:image/jpeg;base64,${base64String}`;
+                img.className = "preview-image";
+                imageContainer.appendChild(img);
+              });
+              
+              userMessageDiv.appendChild(imageContainer);
+            }
+            
+            chatContainer.appendChild(userMessageDiv);
+          }
+
+          // Clear the message input and image preview
+          messageInput.value = "";
+          document.getElementById('image-preview').innerHTML = '';
+
+          // Send the user's message and images to the server using AJAX
+          fetch("/chat", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ 
+              message: message,
+              images: selectedImages
+            }),
+          })
+            .then((response) => response.json())
+            .then((data) => {
+              if (data.success) {
+                const roleDiv = document.createElement("div");
+                roleDiv.classList.add("message-role");
+                roleDiv.classList.add("assistant");
+                roleDiv.textContent = "Assistant";
+                chatContainer.appendChild(roleDiv);
+
+                // Prepare the assistant's message container
+                const assistantMessageDiv = document.createElement("div");
+                assistantMessageDiv.classList.add("assistant-message");
+                chatContainer.appendChild(assistantMessageDiv);
+
+                // Open a connection to receive streamed responses
+                const eventSource = new EventSource("/stream");
+                eventSource.onmessage = function (event) {
+                  const currentText = assistantMessageDiv.textContent;
+                  const newText = event.data;
+                  const lastChar = currentText.slice(-1);
+
+                  // Check if we need to add a space
+                  if (/[.,!?]/.test(lastChar) && newText.charAt(0) !== " ") {
+                    assistantMessageDiv.textContent += " " + newText;
+                  } else {
+                    assistantMessageDiv.textContent += newText;
+                  }
+
+                  // Scroll to the bottom of the chat container
+                  chatContainer.scrollTop = chatContainer.scrollHeight;
+                };
+                eventSource.onerror = function () {
+                  eventSource.close();
+                };
+              }
+            });
+
+          // Clear selected images array
+          selectedImages = [];
+        });
+
+      // Add event listener for the clear button
+      document
+        .getElementById("clear-btn")
+        ?.addEventListener("click", function () {
+          // Clear the chat container
+          const chatContainer = document.querySelector(".chat-container");
+          chatContainer.innerHTML = "";
+
+          // Re-insert the initial system message as an assistant message
+          const systemMessageDiv = document.createElement("div");
+          systemMessageDiv.classList.add("assistant-message");
+          systemMessageDiv.textContent = "You are a helpful assistant.";
+          chatContainer.appendChild(systemMessageDiv);
+
+          // Reset the chat history on the server
+          fetch("/reset", {
+            method: "POST",
+          }).then((response) => {
+            if (response.ok) {
+              console.log("Chat history has been reset.");
+            }
+          });
+        });
+    </script>
+  </body>
+</html>
