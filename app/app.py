@@ -113,7 +113,7 @@ def reset_chat():
     chat_history = [
         {
             "role": "system",
-            "content": "YThese are frames from a video that I want to upload. Generate a compelling description that I can upload along with the video.",
+            "content": "These are frames from a video that I want to upload. Generate a compelling description that I can upload along with the video.",
         }
     ]
 
